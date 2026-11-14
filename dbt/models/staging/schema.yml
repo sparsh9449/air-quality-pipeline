@@ -1,0 +1,22 @@
+version: 2
+
+models:
+  - name: stg_measurements
+    description: One row per sensor measurement value, typed from raw Parquet.
+    columns:
+      - name: sensor_id
+        description: Sensor.Community sensor identifier.
+        tests:
+          - not_null
+      - name: measured_at
+        description: Reading timestamp.
+        tests:
+          - not_null
+      - name: value_type
+        description: Measured quantity (e.g. P1, P2, temperature, humidity).
+        tests:
+          - not_null
+      - name: value
+        description: Numeric reading value.
+        tests:
+          - not_null

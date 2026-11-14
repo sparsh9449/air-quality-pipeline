@@ -1,0 +1,7 @@
+ontario_aqi:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('DUCKDB_PATH', '../data/aqi.duckdb') }}"
+      threads: 4
