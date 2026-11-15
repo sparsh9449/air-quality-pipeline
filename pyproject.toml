@@ -1,7 +1,7 @@
 [project]
-name = "ontario-aqi-pipeline"
+name = "air-quality-pipeline"
 version = "0.1.0"
-description = "Real-time air quality pipeline for Ontario using Sensor.Community data"
+description = "Real-time air quality pipeline using Sensor.Community data"
 requires-python = ">=3.11"
 
 [tool.ruff]

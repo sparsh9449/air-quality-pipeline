@@ -1,14 +1,14 @@
-name: ontario_aqi
+name: air_quality
 version: "0.1.0"
 config-version: 2
 
-profile: ontario_aqi
+profile: air_quality
 
 model-paths: ["models"]
 target-path: "target"
 clean-targets: ["target", "dbt_packages"]
 
 models:
-  ontario_aqi:
+  air_quality:
     staging:
       +materialized: view

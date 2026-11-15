@@ -11,8 +11,8 @@ import streamlit as st
 PARQUET_DIR = os.environ.get("PARQUET_DIR", "./data/parquet")
 CLAMP_MAX = 1000
 
-st.set_page_config(page_title="Ontario Air Quality", layout="wide")
-st.title("Ontario Air Quality — PM2.5")
+st.set_page_config(page_title="Air Quality", layout="wide")
+st.title("Air Quality — PM2.5")
 st.caption(
     "Outdoor sensors only (indoor excluded). PM2.5 is clamped to "
     f"0–{CLAMP_MAX} µg/m³ for display; stored values are raw and unmodified."

@@ -129,7 +129,7 @@ def poll_loop(
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     parquet_dir = os.environ.get("PARQUET_DIR", "./data/parquet")
-    user_agent = os.environ.get("USER_AGENT", "ontario-aqi-pipeline")
+    user_agent = os.environ.get("USER_AGENT", "air-quality-pipeline")
     url = source_url(os.environ.get("BBOX"), os.environ.get("SENSOR_BULK_URL", BULK_URL))
     if "--loop" in sys.argv:
         interval = int(os.environ.get("POLL_INTERVAL_SECONDS", "300"))

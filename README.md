@@ -1,6 +1,6 @@
-# ontario-aqi-pipeline
+# air-quality-pipeline
 
-Real-time air quality pipeline for Ontario built on free [Sensor.Community](https://sensor.community)
+Real-time air quality pipeline built on free [Sensor.Community](https://sensor.community)
 data. Runs locally with Docker, no paid services.
 
 ## Phase 1
