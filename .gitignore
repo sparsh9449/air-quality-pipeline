@@ -149,6 +149,9 @@ activemq-data/
 # SageMath parsed files
 *.sage.py
 
+# Parquet output (root-anchored so tests/data/ stays tracked)
+/data/
+
 # Environments
 .env
 .envrc
