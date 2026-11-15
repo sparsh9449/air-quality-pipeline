@@ -1,18 +1,47 @@
-# Local stack stub. Services are declared but not yet wired end-to-end.
+# Local stack. `docker compose up` starts Redpanda only (laptop-friendly).
+# `--profile ui` adds Redpanda Console; `--profile full` adds the Airflow/Streamlit stubs.
 services:
   redpanda:
     image: redpandadata/redpanda:v24.2.7
+    container_name: redpanda
     command:
-      - redpanda start
-      - --smp 1
-      - --overprovisioned
-      - --kafka-addr PLAINTEXT://0.0.0.0:9092
-      - --advertise-kafka-addr PLAINTEXT://localhost:9092
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --smp=1
+      - --memory=512M
+      - --reserve-memory=0M
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://localhost:9092
     ports:
       - "9092:9092"
+      - "9644:9644"
+    mem_limit: 1g
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  console:
+    image: redpandadata/console:v2.7.2
+    container_name: redpanda-console
+    profiles: ["ui"]
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    ports:
+      - "8080:8080"
+    mem_limit: 256m
 
   airflow:
     image: apache/airflow:2.9.3
+    profiles: ["full"]
     depends_on:
       - redpanda
     environment:
@@ -26,6 +55,7 @@ services:
 
   streamlit:
     image: python:3.11-slim
+    profiles: ["full"]
     working_dir: /app
     volumes:
       - ./dashboards:/app
@@ -34,3 +64,6 @@ services:
       bash -c "pip install streamlit duckdb && streamlit run app.py --server.port 8501 --server.address 0.0.0.0"
     ports:
       - "8501:8501"
+
+volumes:
+  redpanda-data:

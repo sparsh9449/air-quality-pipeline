@@ -1,4 +1,4 @@
-.PHONY: setup up down test lint poll
+.PHONY: setup up down test lint poll topics stream-check
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -22,3 +22,9 @@ lint:
 
 poll:
 	$(PY) -m ingestion.poller --loop
+
+topics:
+	$(PY) -m streaming.admin
+
+stream-check:
+	$(PY) -m scripts.roundtrip

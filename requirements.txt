@@ -5,3 +5,4 @@ pyarrow>=15.0
 pandas>=2.0
 streamlit>=1.30
 dbt-duckdb>=1.7
+confluent-kafka>=2.5
