@@ -1,7 +1,13 @@
 import json
 from datetime import UTC, datetime
 
-from streaming.serialize import decode_reading, encode_dlq, encode_reading, redact_coords
+from streaming.serialize import (
+    coarsen_reading,
+    decode_reading,
+    encode_dlq,
+    encode_reading,
+    redact_coords,
+)
 
 
 def test_reading_round_trip():
@@ -28,6 +34,27 @@ def test_dlq_redacts_coords_even_without_exact_location():
     assert env["payload"]["location"]["longitude"] == -79.38
     assert env["source"] == "poller"
     assert env["source_offset"] is None
+
+
+def test_coarsen_rounds_when_exact_location_set():
+    loc = {"latitude": "43.651234", "longitude": "-79.383215", "exact_location": 1}
+    reading = {"location": loc}
+    out = coarsen_reading(reading)
+    assert out["location"]["latitude"] == 43.65
+    assert out["location"]["longitude"] == -79.38
+
+
+def test_coarsen_leaves_non_exact_untouched():
+    reading = {"location": {"latitude": "43.65", "longitude": "-79.38", "exact_location": 0}}
+    assert coarsen_reading(reading) is reading
+
+
+def test_coarsen_does_not_mutate_input():
+    loc = {"latitude": "43.651234", "longitude": "-79.383215", "exact_location": 1}
+    reading = {"location": loc}
+    coarsen_reading(reading)
+    assert reading["location"]["latitude"] == "43.651234"
+    assert reading["location"]["longitude"] == "-79.383215"
 
 
 def test_dlq_carries_source_offset_for_consumer_failures():

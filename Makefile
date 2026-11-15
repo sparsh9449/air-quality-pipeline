@@ -1,4 +1,4 @@
-.PHONY: setup up down test lint poll topics stream-check
+.PHONY: setup up down test lint poll poll-publish topics stream-check
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -22,6 +22,9 @@ lint:
 
 poll:
 	$(PY) -m ingestion.poller --loop
+
+poll-publish:
+	$(PY) -m ingestion.poller --publish
 
 topics:
 	$(PY) -m streaming.admin

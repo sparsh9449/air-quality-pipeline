@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 from datetime import UTC, datetime
 
@@ -34,6 +35,28 @@ def _round_coord(v: object) -> object:
         except ValueError:
             return v
     return v
+
+
+def _truthy(v: object) -> bool:
+    if isinstance(v, str):
+        return v.strip().lower() not in ("", "0", "false")
+    return bool(v)
+
+
+def coarsen_reading(reading: dict) -> dict:
+    """Round lat/lon to 2 decimals when exact_location is set, so precise coords never leave.
+
+    Non-exact locations are left as the API already coarsened them (matches models.flatten).
+    Returns a new object; the input (including its nested location) is never mutated.
+    """
+    loc = reading.get("location")
+    if not isinstance(loc, dict) or not _truthy(loc.get("exact_location")):
+        return reading
+    new_loc = copy.deepcopy(loc)
+    for key in ("latitude", "longitude"):
+        if new_loc.get(key) is not None:
+            new_loc[key] = _round_coord(new_loc[key])
+    return {**reading, "location": new_loc}
 
 
 def redact_coords(obj: object) -> object:

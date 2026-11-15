@@ -1,4 +1,8 @@
-"""Stage-1 smoke test: create topics, produce one reading, consume it back."""
+"""Stage-1 smoke test: produce one reading to a throwaway topic and consume it back.
+
+Uses a nonce-named temp topic (created up front, deleted on exit) so it never leaves test
+messages on the real sensor.readings topic.
+"""
 
 from __future__ import annotations
 
@@ -10,8 +14,8 @@ from datetime import UTC, datetime
 
 from confluent_kafka import Consumer, Producer
 
-from streaming.admin import create_topics
-from streaming.config import READINGS_TOPIC, broker
+from streaming.admin import create_topics, delete_topics
+from streaming.config import TopicSpec, broker
 from streaming.serialize import decode_reading, encode_reading
 
 logger = logging.getLogger(__name__)
@@ -36,48 +40,54 @@ SAMPLE_READING = {
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     bootstrap = broker()
-    logger.info("topics: %s", create_topics(bootstrap))
-
     nonce = str(uuid.uuid4())
-    reading = {**SAMPLE_READING, "nonce": nonce}
-    producer = Producer({"bootstrap.servers": bootstrap})
-    producer.produce(
-        READINGS_TOPIC,
-        key=str(reading["sensor"]["id"]),
-        value=encode_reading(reading, datetime.now(UTC)),
-    )
-    producer.flush(10)
-    logger.info("produced message nonce=%s", nonce)
-
-    consumer = Consumer(
-        {
-            "bootstrap.servers": bootstrap,
-            "group.id": f"roundtrip-{nonce}",
-            "auto.offset.reset": "earliest",
-            "enable.auto.commit": False,
-        }
-    )
-    consumer.subscribe([READINGS_TOPIC])
-    deadline = time.monotonic() + 20
+    topic = f"sensor.readings.roundtrip-{nonce}"
+    spec = TopicSpec(topic, 1, {"cleanup.policy": "delete", "retention.ms": "600000"})
+    create_topics(bootstrap, [spec])
+    logger.info("created throwaway topic %s", topic)
     try:
-        while time.monotonic() < deadline:
-            msg = consumer.poll(1.0)
-            if msg is None or msg.error():
-                continue
-            env = decode_reading(msg.value())
-            if env.get("reading", {}).get("nonce") == nonce:
-                logger.info(
-                    "consumed match: schema_version=%s ingested_at=%s sensor=%s",
-                    env["schema_version"],
-                    env["ingested_at"],
-                    env["reading"]["sensor"]["id"],
-                )
-                print("ROUNDTRIP OK")
-                return 0
+        reading = {**SAMPLE_READING, "nonce": nonce}
+        producer = Producer({"bootstrap.servers": bootstrap})
+        producer.produce(
+            topic,
+            key=str(reading["sensor"]["id"]),
+            value=encode_reading(reading, datetime.now(UTC)),
+        )
+        producer.flush(10)
+        logger.info("produced message nonce=%s", nonce)
+
+        consumer = Consumer(
+            {
+                "bootstrap.servers": bootstrap,
+                "group.id": f"roundtrip-{nonce}",
+                "auto.offset.reset": "earliest",
+                "enable.auto.commit": False,
+            }
+        )
+        consumer.subscribe([topic])
+        deadline = time.monotonic() + 20
+        try:
+            while time.monotonic() < deadline:
+                msg = consumer.poll(1.0)
+                if msg is None or msg.error():
+                    continue
+                env = decode_reading(msg.value())
+                if env.get("reading", {}).get("nonce") == nonce:
+                    logger.info(
+                        "consumed match: schema_version=%s ingested_at=%s sensor=%s",
+                        env["schema_version"],
+                        env["ingested_at"],
+                        env["reading"]["sensor"]["id"],
+                    )
+                    print("ROUNDTRIP OK")
+                    return 0
+        finally:
+            consumer.close()
+        print("ROUNDTRIP FAILED: message not seen within timeout", file=sys.stderr)
+        return 1
     finally:
-        consumer.close()
-    print("ROUNDTRIP FAILED: message not seen within timeout", file=sys.stderr)
-    return 1
+        delete_topics([topic], bootstrap)
+        logger.info("deleted throwaway topic %s", topic)
 
 
 if __name__ == "__main__":

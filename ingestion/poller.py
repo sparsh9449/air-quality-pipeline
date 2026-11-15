@@ -14,14 +14,21 @@ from datetime import UTC, datetime, timedelta
 import pyarrow as pa
 import pyarrow.parquet as pq
 import requests
+from pydantic import ValidationError
 
-from ingestion.models import dedup, flatten, parse_readings
+from ingestion.models import Reading, dedup, flatten, parse_readings
+from streaming.config import DLQ_TOPIC, READINGS_TOPIC
+from streaming.serialize import SCHEMA_VERSION, coarsen_reading, encode_dlq, encode_reading
 
 logger = logging.getLogger(__name__)
 
 BULK_URL = "https://data.sensor.community/static/v2/data.json"
 BOX_BASE = "https://data.sensor.community/airrohr/v1/filter/box="
 PARTITION_RE = re.compile(r"^dt=\d{4}-\d{2}-\d{2}$")
+READING_HEADERS = [
+    ("schema_version", str(SCHEMA_VERSION).encode()),
+    ("content-type", b"application/json"),
+]
 
 SCHEMA = pa.schema(
     [
@@ -126,12 +133,111 @@ def poll_loop(
         time.sleep(interval)
 
 
+def publish_readings(
+    raw: list[dict],
+    producer,
+    ingested_at: datetime,
+    readings_topic: str = READINGS_TOPIC,
+    dlq_topic: str = DLQ_TOPIC,
+) -> dict:
+    """Validate each entry; publish valid readings (coarsened) and dead-letter invalid ones."""
+    published, dead = 0, 0
+    for entry in raw:
+        sid = (entry.get("sensor") or {}).get("id") if isinstance(entry, dict) else None
+        key = str(sid) if sid is not None else None
+        try:
+            Reading.model_validate(entry)
+        except ValidationError as e:
+            # loc + type only: the error 'input'/'msg' can echo precise coordinates.
+            first = e.errors()[0]
+            loc = ".".join(str(p) for p in first["loc"])
+            error = (
+                f"{type(e).__name__}: loc={loc} type={first['type']} ({e.error_count()} error(s))"
+            )
+            producer.produce(
+                dlq_topic,
+                value=encode_dlq(
+                    source="poller",
+                    stage="validation",
+                    error=error,
+                    payload=entry,
+                    key=key,
+                ),
+                key=key,
+            )
+            dead += 1
+            continue
+        producer.produce(
+            readings_topic,
+            value=encode_reading(coarsen_reading(entry), ingested_at),
+            key=key,
+            headers=READING_HEADERS,
+        )
+        published += 1
+    return {"fetched": len(raw), "published": published, "dead_lettered": dead}
+
+
+def publish_once(
+    url: str,
+    user_agent: str,
+    producer,
+    session: requests.Session | None = None,
+    ingested_at: datetime | None = None,
+    flush_timeout: float = 30.0,
+) -> dict:
+    """Fetch, publish to the stream, flush. Raise if any message failed or was left unflushed."""
+    ingested_at = ingested_at or datetime.now(UTC)
+    start = time.monotonic()
+    raw = fetch(url, user_agent, session)
+    counts = publish_readings(raw, producer, ingested_at)
+    unflushed = producer.flush(flush_timeout)
+    counts["delivery_failures"] = producer.failed
+    counts["unflushed"] = unflushed
+    logger.info(
+        "publish poll: fetched=%d published=%d dead_lettered=%d delivery_failures=%d "
+        "unflushed=%d duration=%.1fs",
+        counts["fetched"],
+        counts["published"],
+        counts["dead_lettered"],
+        producer.failed,
+        unflushed,
+        time.monotonic() - start,
+    )
+    if unflushed or producer.failed:
+        raise RuntimeError(
+            f"stream delivery incomplete: unflushed={unflushed} delivery_failures={producer.failed}"
+        )
+    return counts
+
+
+def publish_loop(
+    url: str, user_agent: str, producer, interval: int, session: requests.Session | None = None
+) -> None:
+    # Unlike poll_loop, a failed pull propagates and stops the loop (do not keep publishing blind).
+    while True:
+        publish_once(url, user_agent, producer, session=session)
+        time.sleep(interval)
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     parquet_dir = os.environ.get("PARQUET_DIR", "./data/parquet")
     user_agent = os.environ.get("USER_AGENT", "air-quality-pipeline")
     url = source_url(os.environ.get("BBOX"), os.environ.get("SENSOR_BULK_URL", BULK_URL))
-    if "--loop" in sys.argv:
+    if "--publish" in sys.argv:
+        from streaming.producer import StreamProducer
+
+        producer = StreamProducer()
+        try:
+            if "--loop" in sys.argv:
+                interval = int(os.environ.get("POLL_INTERVAL_SECONDS", "300"))
+                publish_loop(url, user_agent, producer, interval)
+            else:
+                publish_once(url, user_agent, producer)
+        except Exception:
+            logger.exception("publish mode failed")
+            raise SystemExit(1) from None
+    elif "--loop" in sys.argv:
         interval = int(os.environ.get("POLL_INTERVAL_SECONDS", "300"))
         retention = int(os.environ.get("RETENTION_DAYS", "7"))
         poll_loop(parquet_dir, user_agent, url, interval, retention)

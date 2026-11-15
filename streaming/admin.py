@@ -34,6 +34,22 @@ def create_topics(
     return results
 
 
+def delete_topics(names: list[str], bootstrap: str | None = None) -> dict[str, str]:
+    """Delete topics; absent topics are reported, not errors (used to clean up throwaway topics)."""
+    admin = AdminClient({"bootstrap.servers": bootstrap or broker()})
+    results: dict[str, str] = {}
+    for name, fut in admin.delete_topics(list(names)).items():
+        try:
+            fut.result()
+            results[name] = "deleted"
+        except KafkaException as e:
+            if e.args[0].code() == KafkaError.UNKNOWN_TOPIC_OR_PART:
+                results[name] = "absent"
+            else:
+                raise
+    return results
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     for topic, status in create_topics().items():
